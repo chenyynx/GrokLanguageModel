@@ -1,0 +1,287 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# One run per branch or pull request. A new push cancels the pull request's
+# run in progress. Runs on main are never cancelled once they start.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Run every step with `bash -eo pipefail`, so a failing command fails its step
+# even when its output is piped.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The Xcode used by every job. Bump this to move CI to a newer Xcode, and
+  # keep release.yml in sync.
+  XCODE_PATH: /Applications/Xcode_27.1.app
+
+# Every build treats Swift compiler warnings as errors, because the project
+# allows no warnings (see CONTRIBUTING.md). Only Swift diagnostics are
+# affected: warnings from other build tools, like the App Intents metadata
+# processor's "Metadata extraction skipped" for targets that don't use App
+# Intents, are left as warnings. SwiftPM and xcodebuild exit with a non-zero
+# status on any error, which fails the step.
+jobs:
+  test-macos:
+    name: Test (macOS)
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      - name: Build
+        run: swift build --build-tests -Xswiftc -warnings-as-errors
+
+      # The live suite skips itself when no API key is available, but skipping
+      # it by name keeps this job offline by construction, whatever the runner's
+      # environment contains. Live tests run in the `live-tests` job below.
+      - name: Run offline tests
+        run: swift test --skip-build --skip GrokLanguageModelTests.GrokLanguageModelTests/
+
+  build-platforms:
+    name: ${{ matrix.name }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Test (iOS Simulator)
+            action: test
+            platform: iOS
+            simulator: iPhone 17
+            # The package's iOS deployment target. Older simulators can't run it.
+            min_os: '27.0'
+            slug: ios-simulator
+          - name: Build (iOS)
+            action: build
+            platform: iOS
+            destination: generic/platform=iOS
+            slug: ios
+          - name: Build (visionOS)
+            action: build
+            platform: visionOS
+            destination: generic/platform=visionOS
+            slug: visionos
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      # Xcode rejects generic and simulator destinations when it can't find the
+      # platform's runtime. This is a no-op unless the runner image lacks it.
+      - name: Ensure the ${{ matrix.platform }} platform is installed
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          destinations=$(xcodebuild -showdestinations -project GrokLanguageModel.xcodeproj -scheme GrokLanguageModel 2>&1 || true)
+          if grep -q "error:$PLATFORM [0-9.]* is not installed" <<< "$destinations"; then
+            xcodebuild -downloadPlatform "$PLATFORM"
+          fi
+
+      - name: Resolve destination
+        id: destination
+        env:
+          DESTINATION: ${{ matrix.destination }}
+          SIMULATOR_NAME: ${{ matrix.simulator }}
+          MIN_OS: ${{ matrix.min_os }}
+        run: |
+          if [ -n "$SIMULATOR_NAME" ]; then
+            # Look the simulator up instead of hard-coding an OS version: pick the
+            # requested iPhone on the newest iOS runtime that this Xcode can run
+            # and that meets the deployment target, or any such iPhone if that
+            # model isn't installed.
+            sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)
+            udid=$(xcrun simctl list devices available --json | jq -r --arg name "$SIMULATOR_NAME" --arg sdk "$sdk" --arg min "$MIN_OS" '
+              def numbers: split(".") | map(tonumber);
+              ($sdk | numbers) as $newest
+              | ($min | numbers) as $oldest
+              | .devices
+              | to_entries
+              | map(select(.key | test("SimRuntime\\.iOS-"))
+                    | {version: (.key | capture("iOS-(?<v>[0-9-]+)$").v | split("-") | map(tonumber)), devices: .value})
+              | map(select(.version >= $oldest and .version[0:2] <= $newest))
+              | sort_by(.version) | reverse
+              | [.[].devices[] | select(.isAvailable)]
+              | (map(select(.name == $name)) + map(select(.name | startswith("iPhone"))))
+              | first | .udid // empty')
+            if [ -z "$udid" ]; then
+              echo "::error title=No iOS simulator::No available iPhone simulator with iOS $MIN_OS through $sdk."
+              xcrun simctl list devices available
+              exit 1
+            fi
+            DESTINATION="id=$udid"
+            xcrun simctl list devices available | grep "$udid"
+          fi
+          echo "Destination: $DESTINATION"
+          echo "value=$DESTINATION" >> "$GITHUB_OUTPUT"
+
+      # A step time limit, shorter than the job's, fails a stalled simulator
+      # test run quickly and still uploads its result bundle. Swift Testing
+      # doesn't time out on its own under xcodebuild.
+      - name: xcodebuild ${{ matrix.action }}
+        timeout-minutes: 20
+        env:
+          ACTION: ${{ matrix.action }}
+          DESTINATION: ${{ steps.destination.outputs.value }}
+          RESULT_BUNDLE: ${{ runner.temp }}/${{ matrix.slug }}.xcresult
+        run: |
+          args=(
+            -project GrokLanguageModel.xcodeproj
+            -scheme GrokLanguageModel
+            -destination "$DESTINATION"
+            -derivedDataPath "$RUNNER_TEMP/DerivedData"
+            -resultBundlePath "$RESULT_BUNDLE"
+          )
+          if [ "$ACTION" = test ]; then
+            # Offline tests only; see the `live-tests` job.
+            args+=(-skip-testing:GrokLanguageModelTests/GrokLanguageModelTests)
+          fi
+          xcodebuild "$ACTION" "${args[@]}" \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+
+      - name: Upload result bundle
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.slug }}.xcresult
+          path: ${{ runner.temp }}/${{ matrix.slug }}.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build-examples:
+    name: Example (${{ matrix.scheme }})
+    runs-on: xcode-27
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: Examples/GrokChat-iOS/GrokChat.xcodeproj
+            scheme: GrokChat
+            platform: iOS
+            destination: generic/platform=iOS Simulator
+          - project: Examples/GrokStudio-macOS/GrokStudio.xcodeproj
+            scheme: GrokStudio
+            platform: macOS
+            destination: generic/platform=macOS
+    env:
+      PROJECT: ${{ matrix.project }}
+      SCHEME: ${{ matrix.scheme }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      # See the matching step in `build-platforms`. macOS is always installed.
+      - name: Ensure the ${{ matrix.platform }} platform is installed
+        if: matrix.platform != 'macOS'
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          destinations=$(xcodebuild -showdestinations -project "$PROJECT" -scheme "$SCHEME" 2>&1 || true)
+          if grep -q "error:$PLATFORM [0-9.]* is not installed" <<< "$destinations"; then
+            xcodebuild -downloadPlatform "$PLATFORM"
+          fi
+
+      # The examples use the package through a local reference to the repository
+      # root, so this also checks the package builds as a dependency of an app.
+      # The warnings-as-errors setting applies to the package's targets too.
+      - name: Build
+        env:
+          DESTINATION: ${{ matrix.destination }}
+        run: |
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+
+  live-tests:
+    name: Live API tests
+    needs: test-macos
+    # Live tests call the xAI API with the GROK_API_KEY secret from the
+    # `grok-api` environment, which only main and version tags may use. They
+    # run for pushes to main and for manual runs on main. They never run for
+    # pull requests (forks don't get secrets), for manual runs on other
+    # branches, or in forks of this repository. The Release workflow runs them
+    # again for version tags.
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' &&
+      !github.event.repository.fork
+    runs-on: xcode-27
+    timeout-minutes: 30
+    environment: grok-api
+    env:
+      # The live suite in GrokLanguageModelTests/GrokLanguageModelTests.swift.
+      LIVE_SUITE: GrokLanguageModelTests.GrokLanguageModelTests
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      # `swift test --filter` succeeds when nothing matches, so make sure the
+      # filter still finds the live suite instead of passing without it.
+      - name: Find live tests
+        run: |
+          tests=$(swift test list)
+          count=$(grep -c "^$LIVE_SUITE/" <<< "$tests" || true)
+          if [ "$count" -eq 0 ]; then
+            echo "::error title=No live tests::No tests match $LIVE_SUITE. Update LIVE_SUITE in ci.yml and release.yml."
+            exit 1
+          fi
+          echo "Found $count live tests."
+
+      # The key is exposed to this step only. The live suite silently skips
+      # itself without a key, so fail loudly here instead.
+      - name: Run live tests
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+        run: |
+          if [ -z "$GROK_API_KEY" ]; then
+            echo "::error title=Missing GROK_API_KEY::The grok-api environment has no GROK_API_KEY secret. Add it under Settings > Environments > grok-api."
+            exit 1
+          fi
+          swift test --filter "$LIVE_SUITE/"

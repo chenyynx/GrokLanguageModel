@@ -1,0 +1,93 @@
+name: Feature request
+description: Suggest a new capability or an improvement to GrokLanguageModel.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape GrokLanguageModel! The package's goal is to make Grok feel like any other Foundation Models `LanguageModel`, so the best requests describe the problem you're solving with a `LanguageModelSession`.
+
+        Want a preset for a new Grok model? Use the **Model support** form instead.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what makes it hard or impossible today?
+      placeholder: When I stream a response, I can't tell how many tokens…
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like the package to behave? Mention the xAI API feature it relies on, if any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: api-sketch
+    attributes:
+      label: API sketch
+      description: If you have an API in mind, sketch how you'd call it.
+      placeholder: |
+        // A hypothetical API, sketched the way you'd like to call it.
+        let model = GrokModel.grok4.serverTools([.webSearch])
+        let session = LanguageModelSession(model: model)
+        let response = try await session.respond(to: "What's new in Swift this week?")
+      render: swift
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other approaches you considered.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which parts of the package would this touch? Select all that apply.
+      multiple: true
+      options:
+        - Text generation
+        - Streaming
+        - Structured output / @Generable
+        - Tool calling
+        - Reasoning
+        - Image attachments
+        - Configuration / API keys
+        - Errors
+        - Documentation
+        - Example apps
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Would you like to contribute?
+      description: Pull requests are welcome. It's a good idea to agree on the approach in this issue first.
+      options:
+        - Yes, I'd like to open a pull request
+        - Maybe, with some guidance
+        - No, I'm just suggesting it
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched [existing issues](https://github.com/MarcoDotIO/GrokLanguageModel/issues?q=is%3Aissue) and didn't find a request for this feature.
+          required: true
+        - label: I didn't include any API keys or other secrets.
+          required: true

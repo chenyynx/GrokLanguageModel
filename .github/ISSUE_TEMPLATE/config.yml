@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/MarcoDotIO/GrokLanguageModel/security/advisories/new
+    about: Please report security issues privately, not in a public issue.
+  - name: Ask a question
+    url: https://github.com/MarcoDotIO/GrokLanguageModel/discussions
+    about: Get help using GrokLanguageModel, or share what you've built, in GitHub Discussions.
+  - name: xAI API documentation
+    url: https://docs.x.ai
+    about: Models, pricing, rate limits, and the Responses API. Contact xAI for account, billing, or service issues.
+  - name: Apple Foundation Models documentation
+    url: https://developer.apple.com/documentation/foundationmodels
+    about: LanguageModelSession, guided generation, tool calling, and the rest of the Foundation Models framework.

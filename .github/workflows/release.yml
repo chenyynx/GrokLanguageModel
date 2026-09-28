@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    # Semantic version tags without a "v" prefix, such as 1.0.0.
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+# Read-only by default. Only the `release` job can write, and only after the
+# offline and live tests pass.
+permissions:
+  contents: read
+
+# Never cancel a release that's in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# Run every step with `bash -eo pipefail`, as in ci.yml.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The Xcode used to verify the release. Keep in sync with ci.yml.
+  XCODE_PATH: /Applications/Xcode_27.1.app
+
+jobs:
+  test:
+    name: Test (macOS)
+    # Releases only run in this repository, not in forks. The other jobs
+    # depend on this one, so they're skipped too.
+    if: ${{ !github.event.repository.fork }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Fetch every branch, to check that the tag is on main.
+          fetch-depth: 0
+
+      # Only release commits on main, which CI builds and tests on every
+      # platform, so a tag on another branch never reaches the API key or
+      # becomes a release.
+      - name: Check that the tag is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error title=Tag not on main::Version tags must point to a commit on main."
+            exit 1
+          fi
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      # Skipping the live suite by name keeps this job offline, whatever the
+      # runner's environment contains. The `live-tests` job runs it.
+      - name: Run offline tests
+        run: swift test --skip GrokLanguageModelTests.GrokLanguageModelTests/
+
+  live-tests:
+    name: Live API tests
+    # Don't spend API credits on a tag whose offline tests fail.
+    needs: test
+    runs-on: xcode-27
+    timeout-minutes: 30
+    # The `grok-api` environment holds the GROK_API_KEY secret and is only
+    # available to main and version tags. Its deployment tag rule must match
+    # these tags, or GitHub rejects this job and nothing is released.
+    # Environment rules use fnmatch syntax rather than the filter syntax
+    # above, so use a rule like `[0-9]*.[0-9]*.[0-9]*`, not `[0-9]+...`.
+    environment: grok-api
+    env:
+      # The live suite in GrokLanguageModelTests/GrokLanguageModelTests.swift.
+      LIVE_SUITE: GrokLanguageModelTests.GrokLanguageModelTests
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+      # `swift test --filter` succeeds when nothing matches, so make sure the
+      # filter still finds the live suite instead of passing without it.
+      - name: Find live tests
+        run: |
+          tests=$(swift test list)
+          count=$(grep -c "^$LIVE_SUITE/" <<< "$tests" || true)
+          if [ "$count" -eq 0 ]; then
+            echo "::error title=No live tests::No tests match $LIVE_SUITE. Update LIVE_SUITE in ci.yml and release.yml."
+            exit 1
+          fi
+          echo "Found $count live tests."
+
+      # The key is exposed to this step only. The live suite silently skips
+      # itself without a key, so fail loudly here instead of releasing a
+      # version whose live tests never ran.
+      - name: Run live tests
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+        run: |
+          if [ -z "$GROK_API_KEY" ]; then
+            echo "::error title=Missing GROK_API_KEY::The grok-api environment has no GROK_API_KEY secret. Add it under Settings > Environments > grok-api."
+            exit 1
+          fi
+          swift test --filter "$LIVE_SUITE/"
+
+  release:
+    name: Publish release
+    needs: [test, live-tests]
+    runs-on: xcode-27
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Safe to re-run: if the tag already has a release, this step leaves it
+      # alone and succeeds.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "::notice title=Release exists::A release for $TAG already exists. Skipping."
+            exit 0
+          fi
+
+          # Use the body of CHANGELOG.md's "## [<tag>]" section as the notes:
+          # everything up to the next "## [" heading, minus Keep a Changelog link
+          # definitions and the blank lines around the section.
+          notes="$RUNNER_TEMP/release-notes.md"
+          : > "$notes"
+          if [ -f CHANGELOG.md ]; then
+            awk -v tag="$TAG" '
+              /^## \[/ { if (found) exit; found = (index($0, "## [" tag "]") == 1); next }
+              !found || /^\[[^]]+\]: / { next }
+              /^[[:space:]]*$/ { if (printed) blanks++; next }
+              { for (; blanks > 0; blanks--) print ""; print; printed = 1 }
+            ' CHANGELOG.md > "$notes"
+          fi
+
+          if [ -s "$notes" ]; then
+            gh release create "$TAG" --verify-tag --title "GrokLanguageModel $TAG" --notes-file "$notes"
+          else
+            echo "::warning title=No changelog entry::CHANGELOG.md has no \"## [$TAG]\" section. Using generated release notes."
+            gh release create "$TAG" --verify-tag --title "GrokLanguageModel $TAG" --generate-notes
+          fi

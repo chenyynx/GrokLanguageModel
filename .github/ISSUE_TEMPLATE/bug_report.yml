@@ -1,0 +1,187 @@
+name: Bug report
+description: Report something in GrokLanguageModel that doesn't work as documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! A small, self-contained reproduction is the fastest way to get it fixed.
+
+        > [!WARNING]
+        > **Never paste your xAI API key.** Check code, logs, `Authorization` headers, and screenshots before you submit. If a key was exposed, revoke it in the [xAI Console](https://console.x.ai) right away.
+
+        Found a security vulnerability? Please [report it privately](https://github.com/MarcoDotIO/GrokLanguageModel/security/advisories/new) instead of opening a public issue.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear, concise description of the bug.
+      placeholder: Streaming a response with a tool call never finishes when…
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: |
+        The smallest code that shows the problem, with any steps as comments. Configure the key with `GrokConfiguration.default.apiKey` or the `GROK_API_KEY` environment variable, and leave it out of the code you paste.
+      placeholder: |
+        import FoundationModels
+        import GrokLanguageModel
+
+        // 1. Create a session with a Grok model.
+        let session = LanguageModelSession(model: GrokModel.grok4)
+
+        // 2. Send a prompt.
+        let response = try await session.respond(to: "Tell me a joke!")
+
+        // 3. Observe that…
+      render: swift
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead, including any error that was thrown.
+    validations:
+      required: true
+
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: The GrokLanguageModel release you're using (see `Package.resolved`), or a commit hash if you depend on a branch.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: model
+    attributes:
+      label: Grok model
+      description: Which models show the problem? Select all that apply.
+      multiple: true
+      options:
+        - ".grok4 / .grok4_7 (grok-4.7)"
+        - ".grok4_6 (grok-4.6)"
+        - ".grok4_5 (grok-4.5)"
+        - ".grok4_3 (grok-4.3)"
+        - ".grok4_20 (grok-4.20-reasoning)"
+        - ".grok4_20NonReasoning (grok-4.20-non-reasoning)"
+        - ".grokBuild (grok-build-0.1)"
+        - "Custom GrokModel(name:)"
+    validations:
+      required: true
+
+  - type: input
+    id: model-configuration
+    attributes:
+      label: Model configuration
+      description: Any custom model name, modifiers, or non-default `GrokConfiguration` settings. Don't include API keys.
+      placeholder: 'GrokModel(name: "grok-4.8").reasoningEffort(.low), custom baseURL (own proxy)'
+    validations:
+      required: false
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Where does the problem happen? Select all that apply.
+      multiple: true
+      options:
+        - iOS
+        - iPadOS
+        - macOS
+        - visionOS
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      description: The OS version, and whether you're running on a device or in Simulator.
+      placeholder: iOS 27.1 (Simulator), macOS 27.0
+    validations:
+      required: true
+
+  - type: input
+    id: xcode-version
+    attributes:
+      label: Xcode version
+      description: Run `xcodebuild -version` to find it.
+      placeholder: Xcode 27.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      description: Which parts of the package are involved? Select all that apply.
+      multiple: true
+      options:
+        - Text generation
+        - Streaming
+        - Structured output / @Generable
+        - Tool calling
+        - Reasoning
+        - Image attachments
+        - Configuration / API keys
+        - Errors
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: system-model
+    attributes:
+      label: Does it happen with Apple's on-device model?
+      description: "If you can, run the same code with `LanguageModelSession(model: SystemLanguageModel.default)`. This tells us whether the problem is in this package or in Foundation Models."
+      options:
+        - No, it only happens with GrokModel
+        - Yes, it also happens with SystemLanguageModel
+        - I didn't try, or it doesn't apply
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Console output, the full error (`print(String(reflecting: error))`), or the HTTP status code and response body. `GrokConfiguration` redacts keys when printed, but raw request dumps don't, so remove any `Authorization` headers and API keys before pasting.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else that might help, like screenshots, how often it happens, or whether it started after an update.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed API keys, `Authorization` headers, and other secrets from everything I pasted above.
+          required: true
+        - label: I searched [existing issues](https://github.com/MarcoDotIO/GrokLanguageModel/issues?q=is%3Aissue) and didn't find a report of this bug.
+          required: true

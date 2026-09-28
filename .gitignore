@@ -1,0 +1,39 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# macOS
+.DS_Store
+
+# Build and test output
+build/
+*.xcresult
+*.log
+*.ipa
+*.dSYM/
+*.dSYM.zip
+
+# Signing material
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+*.provisionprofile
+
+# Local editor and agent settings
+.vscode/
+.idea/
+.claude/settings.local.json

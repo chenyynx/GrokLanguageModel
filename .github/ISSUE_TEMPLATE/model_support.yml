@@ -1,0 +1,130 @@
+name: Model support
+description: Request a preset for a new Grok model, or report that an existing preset is out of date.
+title: "[Model]: "
+labels: ["model-support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when xAI releases a new Grok model or changes an existing one, like a rename, a new context window, or different reasoning options. You'll find model IDs and capabilities in the [xAI models documentation](https://docs.x.ai/developers/models).
+
+        > [!TIP]
+        > You don't have to wait for a preset. Any model works today when you create it by name:
+        >
+        > ```swift
+        > let model = GrokModel(name: "grok-4.8", contextSize: 500_000)
+        > let session = LanguageModelSession(model: model)
+        > ```
+
+  - type: dropdown
+    id: request-type
+    attributes:
+      label: Request type
+      options:
+        - Add a preset for a new model
+        - Update an existing preset
+        - Deprecate or remove a preset
+    validations:
+      required: true
+
+  - type: input
+    id: model-id
+    attributes:
+      label: Model ID
+      description: The model identifier exactly as the xAI API accepts it in the `model` field.
+      placeholder: "grok-4.8"
+    validations:
+      required: true
+
+  - type: input
+    id: preset
+    attributes:
+      label: Preset
+      description: The preset to update, or a suggested name for a new one.
+      placeholder: ".grok4_8"
+    validations:
+      required: false
+
+  - type: input
+    id: context-window
+    attributes:
+      label: Context window
+      description: The model's context window, in tokens.
+      placeholder: "500,000"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: capabilities
+    attributes:
+      label: Capabilities
+      description: Which capabilities does the model support? These map to Foundation Models' `LanguageModelCapabilities`. Select all that apply.
+      multiple: true
+      options:
+        - Tool calling
+        - Structured output / @Generable
+        - Image input (vision)
+        - Reasoning
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reasoning-control
+    attributes:
+      label: Reasoning control
+      description: How does the model's reasoning effort work, according to the xAI docs?
+      options:
+        - Adjustable effort
+        - Adjustable effort, and reasoning can be disabled
+        - Always reasons, effort isn't adjustable
+        - Doesn't reason
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: reasoning-efforts
+    attributes:
+      label: Supported reasoning efforts
+      description: If the effort is adjustable, list the values the model accepts and its default.
+      placeholder: low, medium, high (default), xhigh
+    validations:
+      required: false
+
+  - type: input
+    id: docs-link
+    attributes:
+      label: Documentation link
+      description: A link to the model's page or announcement in the xAI documentation.
+      placeholder: https://docs.x.ai/developers/models
+    validations:
+      required: true
+
+  - type: dropdown
+    id: custom-model-tried
+    attributes:
+      label: Have you tried it with GrokModel(name:)?
+      options:
+        - Yes, and it works
+        - Yes, but something fails (describe it below)
+        - Not yet
+    validations:
+      required: false
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional details
+      description: API differences, parameters the model rejects, errors you saw, or anything else a preset should account for.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched [existing issues](https://github.com/MarcoDotIO/GrokLanguageModel/issues?q=is%3Aissue) and didn't find a request for this model.
+          required: true
+        - label: I didn't include any API keys or other secrets.
+          required: true
